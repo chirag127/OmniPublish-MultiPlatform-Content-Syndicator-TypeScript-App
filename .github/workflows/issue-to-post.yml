@@ -5,12 +5,9 @@ on:
         types: [labeled]
 
 jobs:
-    convert:
+    convert-issue-to-post:
         if: github.event.label.name == 'publish'
         runs-on: ubuntu-latest
-        permissions:
-            contents: write
-            issues: write
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -20,61 +17,67 @@ jobs:
               with:
                   node-version: "20"
 
-            - name: Convert issue to post
-              id: convert
-              run: |
-                  ISSUE_NUMBER=${{ github.event.issue.number }}
-                  ISSUE_TITLE="${{ github.event.issue.title }}"
-                  ISSUE_BODY="${{ github.event.issue.body }}"
-                  ISSUE_USER="${{ github.event.issue.user.login }}"
+            - name: Convert issue to markdown post
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const path = require('path');
 
-                  # Generate slug from title
-                  SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+                      const issue = context.payload.issue;
+                      const title = issue.title;
+                      const body = issue.body || '';
+                      const author = issue.user.login;
+                      const date = new Date().toISOString().split('T')[0];
+                      const slug = title.toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '-')
+                        .replace(/^-|-$/g, '');
 
-                  # Get current date
-                  DATE=$(date +%Y-%m-%d)
+                      // Extract tags from issue labels
+                      const tags = issue.labels
+                        .map(label => label.name)
+                        .filter(name => name !== 'publish');
 
-                  # Create filename
-                  FILENAME="content/posts/${DATE}-${SLUG}.md"
+                      // Create frontmatter
+                      const frontmatter = `---
+                      title: "${title}"
+                      date: "${date}"
+                      description: "${body.substring(0, 150).replace(/"/g, '\\"')}..."
+                      tags: ${JSON.stringify(tags.length > 0 ? tags : ['general'])}
+                      slug: "${slug}"
+                      author: "${author}"
+                      ---
 
-                  # Extract tags from issue labels
-                  TAGS=$(gh issue view $ISSUE_NUMBER --json labels --jq '.labels[].name' | grep -v "publish" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+                      ${body}
+                      `;
 
-                  # Create markdown file
-                  cat > "$FILENAME" << EOF
-                  ---
-                  title: "$ISSUE_TITLE"
-                  date: $DATE
-                  description: "Post created from GitHub issue #$ISSUE_NUMBER"
-                  tags: $TAGS
-                  slug: $SLUG
-                  author: $ISSUE_USER
-                  ---
+                      // Write to file
+                      const filename = `${date}-${slug}.md`;
+                      const filepath = path.join('content', 'posts', filename);
+                      fs.writeFileSync(filepath, frontmatter);
 
-                  $ISSUE_BODY
-                  EOF
+                      console.log(`Created post: ${filepath}`);
 
-                  echo "filename=$FILENAME" >> $GITHUB_OUTPUT
-                  echo "slug=$SLUG" >> $GITHUB_OUTPUT
-              env:
-                  GH_TOKEN: ${{ github.token }}
+                      // Close the issue
+                      await github.rest.issues.update({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issue.number,
+                        state: 'closed'
+                      });
+
+                      // Add comment
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issue.number,
+                        body: `✅ Post created: \`${filename}\`\n\nThe post will be published in the next sync cycle.`
+                      });
 
             - name: Commit new post
               run: |
                   git config --local user.email "github-actions[bot]@users.noreply.github.com"
                   git config --local user.name "github-actions[bot]"
-                  git add ${{ steps.convert.outputs.filename }}
-                  git commit -m "feat: add post from issue #${{ github.event.issue.number }}"
+                  git add content/posts/
+                  git commit -m "Add post from issue #${{ github.event.issue.number }}"
                   git push
-
-            - name: Close issue
-              run: |
-                  gh issue close ${{ github.event.issue.number }} --comment "✅ Post created: ${{ steps.convert.outputs.slug }}"
-              env:
-                  GH_TOKEN: ${{ github.token }}
-
-            - name: Comment on issue
-              run: |
-                  gh issue comment ${{ github.event.issue.number }} --body "🚀 Your post has been created and will be published in the next sync cycle!"
-              env:
-                  GH_TOKEN: ${{ github.token }}

@@ -1,140 +1,112 @@
 /**
  * Telegraph (Telegra.ph) Adapter
- * API Documentation: https://telegra.ph/api
- *
- * Based on fresh API research (Nov 2024):
- * - Endpoint: https://api.telegra.ph/createPage
- * - No authentication required for creating pages
- * - Access token is returned on first page creation
- * - Content must be in Node format (array of objects)
+ * API Docs: https://telegra.ph/api
+ * Based on fresh API research (Nov 2024)
  */
 
 import axios from "axios";
-import { Post } from "../utils/markdown";
-import { logger } from "../utils/logger";
-
-const PLATFORM = "telegraph";
-const API_BASE = "https://api.telegra.ph";
+import { logger } from "../utils/logger.js";
 
 export interface TelegraphConfig {
-    accessToken?: string; // Optional - will be created if not provided
-    mockMode?: boolean;
-    mockUrl?: string;
+    accessToken: string;
 }
 
-/**
- * Convert HTML to Telegraph Node format
- * Simplified conversion - Telegraph supports limited HTML tags
- */
-function htmlToTelegraphNodes(html: string): any[] {
-    // For simplicity, we'll send the HTML as a single node
-    // Telegraph will parse it automatically
-    return [html];
+export interface TelegraphPage {
+    title: string;
+    author_name?: string;
+    author_url?: string;
+    content: any[]; // Telegraph uses Node objects
+    return_content?: boolean;
 }
 
-export async function publishToTelegraph(
-    post: Post,
-    config: TelegraphConfig
-): Promise<{ id: string; url: string }> {
-    let { accessToken, mockMode, mockUrl } = config;
+export class TelegraphAdapter {
+    private token: string;
+    private baseUrl = "https://api.telegra.ph";
 
-    const baseUrl = mockMode && mockUrl ? mockUrl : API_BASE;
+    constructor(config: TelegraphConfig) {
+        this.token = config.accessToken;
+    }
 
-    // If no access token, create an account first
-    if (!accessToken) {
+    /**
+     * Convert HTML to Telegraph Node format
+     * Telegraph requires content as array of Node objects
+     */
+    private htmlToNodes(html: string): any[] {
+        // Simple conversion - Telegraph accepts HTML tags as nodes
+        // For production, use a proper HTML parser
+        return [
+            {
+                tag: "p",
+                children: [html],
+            },
+        ];
+    }
+
+    async createPage(
+        page: TelegraphPage
+    ): Promise<{ id: string; url: string }> {
         try {
-            const accountResponse = await axios.post(
-                `${baseUrl}/createAccount`,
-                {
-                    short_name: "OmniPublisher",
-                    author_name: post.metadata.author || "Anonymous",
-                }
-            );
+            const response = await axios.post(`${this.baseUrl}/createPage`, {
+                access_token: this.token,
+                title: page.title,
+                author_name: page.author_name,
+                author_url: page.author_url,
+                content: page.content,
+                return_content: page.return_content || false,
+            });
 
-            accessToken = accountResponse.data.result.access_token;
-            logger.info("Created new Telegraph account", PLATFORM);
+            if (!response.data.ok) {
+                throw new Error(response.data.error || "Telegraph API error");
+            }
+
+            return {
+                id: response.data.result.path,
+                url: response.data.result.url,
+            };
         } catch (error: any) {
             logger.error(
-                "Failed to create Telegraph account",
-                PLATFORM,
-                post.metadata.slug,
-                {
-                    error: error.message,
-                }
+                "Failed to create Telegraph page",
+                "telegraph",
+                undefined,
+                error
             );
             throw error;
         }
     }
 
-    const pageData = {
-        access_token: accessToken,
-        title: post.metadata.title,
-        author_name: post.metadata.author || "Anonymous",
-        content: htmlToTelegraphNodes(post.html),
-        return_content: false,
-    };
+    async updatePage(
+        path: string,
+        page: TelegraphPage
+    ): Promise<{ id: string; url: string }> {
+        try {
+            const response = await axios.post(
+                `${this.baseUrl}/editPage/${path}`,
+                {
+                    access_token: this.token,
+                    title: page.title,
+                    author_name: page.author_name,
+                    author_url: page.author_url,
+                    content: page.content,
+                    return_content: page.return_content || false,
+                }
+            );
 
-    try {
-        const response = await axios.post(`${baseUrl}/createPage`, pageData);
+            if (!response.data.ok) {
+                throw new Error(response.data.error || "Telegraph API error");
+            }
 
-        logger.success("Published successfully", PLATFORM, post.metadata.slug);
-
-        const result = response.data.result;
-
-        return {
-            id: result.path,
-            url: result.url,
-        };
-    } catch (error: any) {
-        logger.error("Failed to publish", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
-    }
-}
-
-export async function updateOnTelegraph(
-    post: Post,
-    pagePath: string,
-    config: TelegraphConfig
-): Promise<{ id: string; url: string }> {
-    const { accessToken, mockMode, mockUrl } = config;
-
-    if (!accessToken) {
-        throw new Error("Telegraph access token is required for updates");
-    }
-
-    const baseUrl = mockMode && mockUrl ? mockUrl : API_BASE;
-
-    const pageData = {
-        access_token: accessToken,
-        path: pagePath,
-        title: post.metadata.title,
-        author_name: post.metadata.author || "Anonymous",
-        content: htmlToTelegraphNodes(post.html),
-        return_content: false,
-    };
-
-    try {
-        const response = await axios.post(
-            `${baseUrl}/editPage/${pagePath}`,
-            pageData
-        );
-
-        logger.success("Updated successfully", PLATFORM, post.metadata.slug);
-
-        const result = response.data.result;
-
-        return {
-            id: result.path,
-            url: result.url,
-        };
-    } catch (error: any) {
-        logger.error("Failed to update", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
+            return {
+                id: response.data.result.path,
+                url: response.data.result.url,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to update Telegraph page",
+                "telegraph",
+                undefined,
+                error
+            );
+            throw error;
+        }
     }
 }

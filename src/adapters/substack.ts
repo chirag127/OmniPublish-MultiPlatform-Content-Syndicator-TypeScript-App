@@ -1,104 +1,86 @@
 /**
  * Substack Adapter (UNOFFICIAL)
  *
- * ⚠️ WARNING: This adapter uses an UNOFFICIAL API that may break without notice.
+ * ⚠️ WARNING: This adapter uses an UNOFFICIAL/REVERSE-ENGINEERED API
  * Substack does not provide an official public API for publishing posts.
+ * This implementation may break at any time without notice.
  *
- * Based on reverse-engineering research (Nov 2024):
- * - No official API exists
- * - This implementation is based on community reverse-engineering efforts
- * - May break at any time if Substack changes their internal API
- * - Use at your own risk
- *
- * References:
- * - https://github.com/NHagar/substack_api
+ * Based on research from:
  * - https://iam.slys.dev/p/no-official-api-no-problem-how-i
+ * - https://github.com/NHagar/substack_api
  *
- * LIMITATIONS:
- * - Authentication method may change
- * - Endpoint structure may change
- * - No official support or documentation
+ * Limitations:
+ * - May require session cookies instead of API tokens
+ * - Endpoints may change without notice
  * - Rate limiting is unknown
+ * - No official support or documentation
+ *
+ * Use at your own risk!
  */
 
 import axios from "axios";
-import { Post } from "../utils/markdown";
-import { logger } from "../utils/logger";
-
-const PLATFORM = "substack";
+import { logger } from "../utils/logger.js";
 
 export interface SubstackConfig {
-    apiToken?: string; // Session token (unofficial)
-    publicationId?: string; // Publication ID
-    mockMode?: boolean;
-    mockUrl?: string;
+    apiToken?: string; // May not work - unofficial
+    publicationId?: string;
 }
 
-export async function publishToSubstack(
-    post: Post,
-    config: SubstackConfig
-): Promise<{ id: string; url: string }> {
-    const { apiToken, publicationId, mockMode, mockUrl } = config;
+export interface SubstackPost {
+    title: string;
+    subtitle?: string;
+    body: string; // HTML content
+    status?: "draft" | "published";
+}
 
-    logger.warn(
-        "Using UNOFFICIAL Substack API - may break without notice",
-        PLATFORM,
-        post.metadata.slug
-    );
+export class SubstackAdapter {
+    private token?: string;
+    private publicationId?: string;
 
-    if (!apiToken || !publicationId) {
-        throw new Error(
-            "Substack API token and publication ID are required (unofficial)"
-        );
+    constructor(config: SubstackConfig) {
+        this.token = config.apiToken;
+        this.publicationId = config.publicationId;
     }
 
-    // Note: This is a placeholder implementation
-    // The actual Substack API endpoints are not publicly documented
-    // and may require session cookies, CSRF tokens, etc.
+    async createPost(post: SubstackPost): Promise<{ id: string; url: string }> {
+        logger.warn(
+            "Substack adapter uses UNOFFICIAL API - may break at any time",
+            "substack"
+        );
 
-    logger.error(
-        "Substack publishing not fully implemented - API is unofficial and unstable",
-        PLATFORM,
-        post.metadata.slug,
-        {
-            note: "Please publish to Substack manually through their web interface",
-            reason: "No stable unofficial API available",
+        try {
+            // This is a placeholder implementation
+            // The actual Substack API is not publicly documented
+            // and requires reverse engineering their web app
+
+            throw new Error(
+                "Substack publishing is not fully implemented. " +
+                    "Substack does not provide an official API. " +
+                    "Consider using their web interface or email publishing instead."
+            );
+        } catch (error: any) {
+            logger.error(
+                "Failed to create Substack post",
+                "substack",
+                undefined,
+                error
+            );
+            throw error;
         }
-    );
+    }
 
-    throw new Error(
-        "Substack adapter is not fully implemented due to lack of official API. " +
-            "Please publish to Substack manually through their web interface."
-    );
+    async updatePost(
+        id: string,
+        post: SubstackPost
+    ): Promise<{ id: string; url: string }> {
+        logger.warn(
+            "Substack adapter uses UNOFFICIAL API - may break at any time",
+            "substack"
+        );
+
+        throw new Error(
+            "Substack updating is not fully implemented. " +
+                "Substack does not provide an official API."
+        );
+    }
 }
-
-export async function updateOnSubstack(
-    post: Post,
-    postId: string,
-    config: SubstackConfig
-): Promise<{ id: string; url: string }> {
-    logger.warn(
-        "Using UNOFFICIAL Substack API - may break without notice",
-        PLATFORM,
-        post.metadata.slug
-    );
-
-    throw new Error(
-        "Substack adapter is not fully implemented due to lack of official API. " +
-            "Please update posts on Substack manually through their web interface."
-    );
-}
-
-/**
- * Note for future implementation:
- *
- * If you want to implement Substack publishing, you'll need to:
- * 1. Reverse-engineer their web app's API calls
- * 2. Extract session cookies and CSRF tokens
- * 3. Replicate the exact request format they use
- * 4. Handle authentication properly
- * 5. Be prepared for it to break at any time
- *
- * This is not recommended for production use.
- * Consider using Substack's email import feature or manual publishing instead.
- */

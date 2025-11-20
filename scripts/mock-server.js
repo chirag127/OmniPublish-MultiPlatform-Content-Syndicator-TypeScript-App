@@ -1,264 +1,242 @@
 /**
- * Mock server for testing platform adapters
- * Simulates API responses from all platforms
+ * Mock API Server for Testing
+ * Simulates all platform endpoints
  */
 
 const express = require('express');
 const app = express();
-const PORT = process.env.MOCK_SERVER_URL?.split(':').pop() || 3333;
+const PORT = process.env.PORT || 4000;
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Helper to generate mock response
-function mockSuccess(platform, id) {
-    return {
-        id: `mock-${platform}-${id}`,
-        url: `https://mock-${platform}.com/post/${id}`,
-        status: 'published',
-        createdAt: new Date().toISOString()
-    };
-}
+// Mock storage
+const posts = {};
+let postIdCounter = 1;
 
-// Dev.to endpoints
-app.post('/devto/articles', (req, res) => {
-    console.log('[MOCK] Dev.to create article');
+// Dev.to mock
+app.post('/api/articles', (req, res) => {
+    const id = postIdCounter++;
+    posts[id] = req.body.article;
     res.json({
-        id: Math.floor(Math.random() * 100000),
-        url: `https://dev.to/mock/article-${Date.now()}`,
-        title: req.body.article.title
+        id,
+        url: `https://dev.to/mock/${id}`,
+        ...req.body.article,
     });
 });
 
-app.put('/devto/articles/:id', (req, res) => {
-    console.log(`[MOCK] Dev.to update article ${req.params.id}`);
+app.put('/api/articles/:id', (req, res) => {
+    const id = req.params.id;
+    posts[id] = req.body.article;
     res.json({
-        id: req.params.id,
-        url: `https://dev.to/mock/article-${req.params.id}`,
-        title: req.body.article.title
+        id,
+        url: `https://dev.to/mock/${id}`,
+        ...req.body.article,
     });
 });
 
-// Hashnode endpoints
-app.post('/hashnode', (req, res) => {
-    console.log('[MOCK] Hashnode GraphQL request');
-    const isUpdate = req.body.query.includes('updateStory');
+// Hashnode mock (GraphQL)
+app.post('/graphql', (req, res) => {
+    const id = postIdCounter++;
+    const mutation = req.body.query;
+
+    if (mutation.includes('publishPost')) {
+        res.json({
+            data: {
+                publishPost: {
+                    post: {
+                        id: `hashnode-${id}`,
+                        slug: `mock-post-${id}`,
+                        url: `https://hashnode.mock/post-${id}`,
+                    },
+                },
+            },
+        });
+    } else if (mutation.includes('updatePost')) {
+        res.json({
+            data: {
+                updatePost: {
+                    post: {
+                        id: req.body.variables.input.id,
+                        slug: `mock-post-${id}`,
+                        url: `https://hashnode.mock/post-${id}`,
+                    },
+                },
+            },
+        });
+    }
+});
+
+// Medium mock
+app.get('/v1/me', (req, res) => {
     res.json({
         data: {
-            [isUpdate ? 'updateStory' : 'createPublicationStory']: {
-                post: {
-                    _id: `mock-hashnode-${Date.now()}`,
-                    cuid: `cuid-${Date.now()}`,
-                    slug: 'mock-post-slug'
-                }
-            }
-        }
+            id: 'mock-user-123',
+            username: 'mockuser',
+        },
     });
 });
 
-// Medium endpoints
-app.get('/medium/me', (req, res) => {
-    console.log('[MOCK] Medium get user');
+app.post('/v1/users/:userId/posts', (req, res) => {
+    const id = postIdCounter++;
     res.json({
         data: {
-            id: 'mock-user-id',
-            username: 'mockuser'
-        }
+            id: `medium-${id}`,
+            url: `https://medium.com/@mock/post-${id}`,
+            ...req.body,
+        },
     });
 });
 
-app.post('/medium/users/:userId/posts', (req, res) => {
-    console.log(`[MOCK] Medium create post for user ${req.params.userId}`);
+// WordPress mock
+app.post('/rest/v1.1/sites/:site/posts/new', (req, res) => {
+    const id = postIdCounter++;
     res.json({
-        data: {
-            id: `mock-medium-${Date.now()}`,
-            url: `https://medium.com/@mockuser/mock-post-${Date.now()}`,
-            title: req.body.title
-        }
+        ID: id,
+        URL: `https://mock.wordpress.com/post-${id}`,
+        ...req.body,
     });
 });
 
-// WordPress endpoints
-app.post('/wordpress/sites/:site/posts/new', (req, res) => {
-    console.log(`[MOCK] WordPress create post on ${req.params.site}`);
-    res.json({
-        ID: Math.floor(Math.random() * 100000),
-        URL: `https://${req.params.site}/mock-post-${Date.now()}`,
-        title: req.body.title
-    });
-});
-
-app.post('/wordpress/sites/:site/posts/:id', (req, res) => {
-    console.log(`[MOCK] WordPress update post ${req.params.id}`);
+app.post('/rest/v1.1/sites/:site/posts/:id', (req, res) => {
     res.json({
         ID: req.params.id,
-        URL: `https://${req.params.site}/mock-post-${req.params.id}`,
-        title: req.body.title
+        URL: `https://mock.wordpress.com/post-${req.params.id}`,
+        ...req.body,
     });
 });
 
-// Ghost endpoints
-app.post('/ghost/ghost/api/admin/posts/', (req, res) => {
-    console.log('[MOCK] Ghost create post');
+// Blogger mock
+app.post('/oauth2/token', (req, res) => {
     res.json({
-        posts: [{
-            id: `mock-ghost-${Date.now()}`,
-            url: `https://mock-ghost.io/mock-post-${Date.now()}`,
-            title: req.body.posts[0].title
-        }]
+        access_token: 'mock-access-token',
+        token_type: 'Bearer',
+        expires_in: 3600,
     });
 });
 
-app.put('/ghost/ghost/api/admin/posts/:id/', (req, res) => {
-    console.log(`[MOCK] Ghost update post ${req.params.id}`);
+app.post('/blogger/v3/blogs/:blogId/posts', (req, res) => {
+    const id = postIdCounter++;
     res.json({
-        posts: [{
-            id: req.params.id,
-            url: `https://mock-ghost.io/mock-post-${req.params.id}`,
-            title: req.body.posts[0].title
-        }]
+        id: `blogger-${id}`,
+        url: `https://mock.blogspot.com/post-${id}`,
+        ...req.body,
     });
 });
 
-// Blogger endpoints
-app.post('/blogger/blogs/:blogId/posts', (req, res) => {
-    console.log(`[MOCK] Blogger create post on blog ${req.params.blogId}`);
+app.put('/blogger/v3/blogs/:blogId/posts/:id', (req, res) => {
     res.json({
-        id: `mock-blogger-${Date.now()}`,
-        url: `https://mock-blogger.blogspot.com/${Date.now()}/post.html`,
-        title: req.body.title
+        id: req.params.id,
+        url: `https://mock.blogspot.com/post-${req.params.id}`,
+        ...req.body,
     });
 });
 
-app.put('/blogger/blogs/:blogId/posts/:postId', (req, res) => {
-    console.log(`[MOCK] Blogger update post ${req.params.postId}`);
-    res.json({
-        id: req.params.postId,
-        url: `https://mock-blogger.blogspot.com/${req.params.postId}/post.html`,
-        title: req.body.title
-    });
-});
-
-// Tumblr endpoints
-app.post('/tumblr/blog/:blogId/post', (req, res) => {
-    console.log(`[MOCK] Tumblr create post on ${req.params.blogId}`);
+// Tumblr mock
+app.post('/v2/blog/:blog/post', (req, res) => {
+    const id = postIdCounter++;
     res.json({
         response: {
-            id: Math.floor(Math.random() * 1000000000),
-            title: req.body.title
-        }
+            id,
+        },
     });
 });
 
-app.post('/tumblr/blog/:blogId/post/edit', (req, res) => {
-    console.log(`[MOCK] Tumblr update post ${req.body.id}`);
+app.post('/v2/blog/:blog/post/edit', (req, res) => {
     res.json({
         response: {
             id: req.body.id,
-            title: req.body.title
-        }
+        },
     });
 });
 
-// Wix endpoints
-app.post('/wix/posts', (req, res) => {
-    console.log('[MOCK] Wix create post');
+// Wix mock
+app.post('/v3/posts', (req, res) => {
+    const id = postIdCounter++;
     res.json({
         post: {
-            id: `mock-wix-${Date.now()}`,
-            slug: 'mock-post-slug',
-            url: `https://www.wix.com/blog/mock-post-${Date.now()}`,
-            title: req.body.post.title
-        }
+            id: `wix-${id}`,
+            slug: `mock-post-${id}`,
+            url: `https://mock.wix.com/blog/post-${id}`,
+            ...req.body.post,
+        },
     });
 });
 
-app.patch('/wix/posts/:id', (req, res) => {
-    console.log(`[MOCK] Wix update post ${req.params.id}`);
+app.patch('/v3/posts/:id', (req, res) => {
     res.json({
         post: {
             id: req.params.id,
-            slug: 'mock-post-slug',
-            url: `https://www.wix.com/blog/mock-post-${req.params.id}`,
-            title: req.body.post.title
-        }
+            slug: `mock-post-${req.params.id}`,
+            url: `https://mock.wix.com/blog/post-${req.params.id}`,
+            ...req.body.post,
+        },
     });
 });
 
-// Write.as endpoints
-app.post('/writeas/posts', (req, res) => {
-    console.log('[MOCK] Write.as create post');
+// Write.as mock
+app.post('/api/posts', (req, res) => {
+    const id = `writeas-${postIdCounter++}`;
     res.json({
         data: {
-            id: `mock-writeas-${Date.now()}`,
-            slug: `mock-slug-${Date.now()}`,
-            title: req.body.title
-        }
+            id,
+            ...req.body,
+        },
     });
 });
 
-app.post('/writeas/posts/:id', (req, res) => {
-    console.log(`[MOCK] Write.as update post ${req.params.id}`);
+app.post('/api/posts/:id', (req, res) => {
     res.json({
         data: {
             id: req.params.id,
-            slug: `mock-slug-${req.params.id}`,
-            title: req.body.title
-        }
+            ...req.body,
+        },
     });
 });
 
-// Telegraph endpoints
-app.post('/telegraph/createAccount', (req, res) => {
-    console.log('[MOCK] Telegraph create account');
+// Telegraph mock
+app.post('/createPage', (req, res) => {
+    const id = `telegraph-${postIdCounter++}`;
     res.json({
         ok: true,
         result: {
-            access_token: `mock-telegraph-token-${Date.now()}`,
-            short_name: req.body.short_name
-        }
+            path: id,
+            url: `https://telegra.ph/${id}`,
+            ...req.body,
+        },
     });
 });
 
-app.post('/telegraph/createPage', (req, res) => {
-    console.log('[MOCK] Telegraph create page');
-    res.json({
-        ok: true,
-        result: {
-            path: `mock-page-${Date.now()}`,
-            url: `https://telegra.ph/mock-page-${Date.now()}`,
-            title: req.body.title
-        }
-    });
-});
-
-app.post('/telegraph/editPage/:path', (req, res) => {
-    console.log(`[MOCK] Telegraph edit page ${req.params.path}`);
+app.post('/editPage/:path', (req, res) => {
     res.json({
         ok: true,
         result: {
             path: req.params.path,
             url: `https://telegra.ph/${req.params.path}`,
-            title: req.body.title
-        }
+            ...req.body,
+        },
     });
 });
 
-// Micro.blog (Micropub) endpoints
+// Micro.blog mock (Micropub)
 app.post('/micropub', (req, res) => {
-    console.log('[MOCK] Micro.blog Micropub request');
-    const postUrl = `https://mock.micro.blog/post-${Date.now()}`;
-    res.setHeader('Location', postUrl);
-    res.status(201).json({
-        url: postUrl
-    });
+    const id = postIdCounter++;
+
+    if (req.body.action === 'update') {
+        res.status(204).send();
+    } else {
+        res.status(201)
+            .header('Location', `https://micro.blog/mock/post-${id}`)
+            .send();
+    }
 });
 
-// Error simulation endpoint
-app.post('/error', (req, res) => {
-    res.status(500).json({ error: 'Simulated error' });
+// Health check
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', posts: Object.keys(posts).length });
 });
 
 app.listen(PORT, () => {
     console.log(`Mock server running on http://localhost:${PORT}`);
-    console.log('Ready to simulate platform API responses');
+    console.log('Simulating all platform APIs for testing');
 });

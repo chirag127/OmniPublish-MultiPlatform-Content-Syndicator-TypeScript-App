@@ -1,151 +1,144 @@
 /**
  * Hashnode Adapter
- * API Documentation: https://apidocs.hashnode.com/
+ * API Docs: https://apidocs.hashnode.com/
  */
 
 import axios from "axios";
-import { Post } from "../utils/markdown";
-import { logger } from "../utils/logger";
-
-const PLATFORM = "hashnode";
-const API_BASE = "https://gql.hashnode.com";
+import { logger } from "../utils/logger.js";
 
 export interface HashnodeConfig {
     token: string;
     publicationId: string;
-    mockMode?: boolean;
-    mockUrl?: string;
 }
 
-export async function publishToHashnode(
-    post: Post,
-    config: HashnodeConfig
-): Promise<{ id: string; url: string }> {
-    const { token, publicationId, mockMode, mockUrl } = config;
-
-    if (!token || !publicationId) {
-        throw new Error("Hashnode token and publication ID are required");
-    }
-
-    const baseUrl = mockMode && mockUrl ? mockUrl : API_BASE;
-
-    const mutation = `
-    mutation PublishPost($input: PublishPostInput!) {
-      publishPost(input: $input) {
-        post {
-          id
-          url
-        }
-      }
-    }
-  `;
-
-    const variables = {
-        input: {
-            title: post.metadata.title,
-            contentMarkdown: post.content,
-            tags: post.metadata.tags.map((tag: string) => ({
-                name: tag,
-                slug: tag.toLowerCase().replace(/\s+/g, "-"),
-            })),
-            publicationId: publicationId,
-            subtitle: post.metadata.description,
-        },
-    };
-
-    try {
-        const response = await axios.post(
-            baseUrl,
-            { query: mutation, variables },
-            {
-                headers: {
-                    Authorization: token,
-                    "Content-Type": "application/json",
-                },
-            }
-        );
-
-        if (response.data.errors) {
-            throw new Error(JSON.stringify(response.data.errors));
-        }
-
-        const postData = response.data.data.publishPost.post;
-        logger.success("Published successfully", PLATFORM, post.metadata.slug);
-
-        return {
-            id: postData.id,
-            url: postData.url,
-        };
-    } catch (error: any) {
-        logger.error("Failed to publish", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
-    }
+export interface HashnodePost {
+    title: string;
+    contentMarkdown: string;
+    tags?: string[];
+    subtitle?: string;
+    slug?: string;
 }
 
-export async function updateOnHashnode(
-    post: Post,
-    postId: string,
-    config: HashnodeConfig
-): Promise<{ id: string; url: string }> {
-    const { token, mockMode, mockUrl } = config;
+export class HashnodeAdapter {
+    private token: string;
+    private publicationId: string;
+    private baseUrl = "https://gql.hashnode.com";
 
-    if (!token) {
-        throw new Error("Hashnode token is required");
+    constructor(config: HashnodeConfig) {
+        this.token = config.token;
+        this.publicationId = config.publicationId;
     }
 
-    const baseUrl = mockMode && mockUrl ? mockUrl : API_BASE;
-
-    const mutation = `
-    mutation UpdatePost($input: UpdatePostInput!) {
-      updatePost(input: $input) {
-        post {
-          id
-          url
+    async createPost(post: HashnodePost): Promise<{ id: string; url: string }> {
+        const mutation = `
+      mutation PublishPost($input: PublishPostInput!) {
+        publishPost(input: $input) {
+          post {
+            id
+            slug
+            url
+          }
         }
       }
-    }
-  `;
+    `;
 
-    const variables = {
-        input: {
-            id: postId,
-            title: post.metadata.title,
-            contentMarkdown: post.content,
-            subtitle: post.metadata.description,
-        },
-    };
-
-    try {
-        const response = await axios.post(
-            baseUrl,
-            { query: mutation, variables },
-            {
-                headers: {
-                    Authorization: token,
-                    "Content-Type": "application/json",
+        try {
+            const response = await axios.post(
+                this.baseUrl,
+                {
+                    query: mutation,
+                    variables: {
+                        input: {
+                            title: post.title,
+                            contentMarkdown: post.contentMarkdown,
+                            tags: post.tags?.map((tag) => ({
+                                slug: tag.toLowerCase().replace(/\s+/g, "-"),
+                                name: tag,
+                            })),
+                            subtitle: post.subtitle,
+                            publicationId: this.publicationId,
+                        },
+                    },
                 },
-            }
-        );
+                {
+                    headers: {
+                        Authorization: this.token,
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
 
-        if (response.data.errors) {
-            throw new Error(JSON.stringify(response.data.errors));
+            const postData = response.data.data.publishPost.post;
+            return {
+                id: postData.id,
+                url: postData.url,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to create Hashnode post",
+                "hashnode",
+                undefined,
+                error
+            );
+            throw error;
         }
+    }
 
-        const postData = response.data.data.updatePost.post;
-        logger.success("Updated successfully", PLATFORM, post.metadata.slug);
+    async updatePost(
+        id: string,
+        post: HashnodePost
+    ): Promise<{ id: string; url: string }> {
+        const mutation = `
+      mutation UpdatePost($input: UpdatePostInput!) {
+        updatePost(input: $input) {
+          post {
+            id
+            slug
+            url
+          }
+        }
+      }
+    `;
 
-        return {
-            id: postData.id,
-            url: postData.url,
-        };
-    } catch (error: any) {
-        logger.error("Failed to update", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
+        try {
+            const response = await axios.post(
+                this.baseUrl,
+                {
+                    query: mutation,
+                    variables: {
+                        input: {
+                            id,
+                            title: post.title,
+                            contentMarkdown: post.contentMarkdown,
+                            tags: post.tags?.map((tag) => ({
+                                slug: tag.toLowerCase().replace(/\s+/g, "-"),
+                                name: tag,
+                            })),
+                            subtitle: post.subtitle,
+                        },
+                    },
+                },
+                {
+                    headers: {
+                        Authorization: this.token,
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
+
+            const postData = response.data.data.updatePost.post;
+            return {
+                id: postData.id,
+                url: postData.url,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to update Hashnode post",
+                "hashnode",
+                undefined,
+                error
+            );
+            throw error;
+        }
     }
 }

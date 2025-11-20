@@ -1,112 +1,90 @@
 /**
  * Dev.to Adapter
- * API Documentation: https://developers.forem.com/api/v1
+ * API Docs: https://developers.forem.com/api/v1
  */
 
 import axios from "axios";
-import { Post } from "../utils/markdown";
-import { logger } from "../utils/logger";
-
-const PLATFORM = "devto";
-const API_BASE = "https://dev.to/api";
+import { logger } from "../utils/logger.js";
 
 export interface DevToConfig {
     apiKey: string;
-    mockMode?: boolean;
-    mockUrl?: string;
 }
 
-export async function publishToDevTo(
-    post: Post,
-    config: DevToConfig
-): Promise<{ id: string; url: string }> {
-    const { apiKey, mockMode, mockUrl } = config;
-
-    if (!apiKey) {
-        throw new Error("Dev.to API key is required");
-    }
-
-    const baseUrl = mockMode && mockUrl ? mockUrl : API_BASE;
-
-    const article = {
-        article: {
-            title: post.metadata.title,
-            published: true,
-            body_markdown: post.content,
-            tags: post.metadata.tags.slice(0, 4), // Dev.to allows max 4 tags
-            description: post.metadata.description,
-            canonical_url: post.metadata.canonical_url || undefined,
-        },
-    };
-
-    try {
-        const response = await axios.post(`${baseUrl}/articles`, article, {
-            headers: {
-                "api-key": apiKey,
-                "Content-Type": "application/json",
-            },
-        });
-
-        logger.success("Published successfully", PLATFORM, post.metadata.slug);
-
-        return {
-            id: response.data.id.toString(),
-            url: response.data.url,
-        };
-    } catch (error: any) {
-        logger.error("Failed to publish", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
-    }
+export interface DevToArticle {
+    title: string;
+    body_markdown: string;
+    published: boolean;
+    tags?: string[];
+    canonical_url?: string;
+    description?: string;
 }
 
-export async function updateOnDevTo(
-    post: Post,
-    articleId: string,
-    config: DevToConfig
-): Promise<{ id: string; url: string }> {
-    const { apiKey, mockMode, mockUrl } = config;
+export class DevToAdapter {
+    private apiKey: string;
+    private baseUrl = "https://dev.to/api";
 
-    if (!apiKey) {
-        throw new Error("Dev.to API key is required");
+    constructor(config: DevToConfig) {
+        this.apiKey = config.apiKey;
     }
 
-    const baseUrl = mockMode && mockUrl ? mockUrl : API_BASE;
+    async createArticle(
+        article: DevToArticle
+    ): Promise<{ id: string; url: string }> {
+        try {
+            const response = await axios.post(
+                `${this.baseUrl}/articles`,
+                { article },
+                {
+                    headers: {
+                        "api-key": this.apiKey,
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
 
-    const article = {
-        article: {
-            title: post.metadata.title,
-            body_markdown: post.content,
-            tags: post.metadata.tags.slice(0, 4),
-            description: post.metadata.description,
-        },
-    };
+            return {
+                id: response.data.id.toString(),
+                url: response.data.url,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to create Dev.to article",
+                "devto",
+                undefined,
+                error
+            );
+            throw error;
+        }
+    }
 
-    try {
-        const response = await axios.put(
-            `${baseUrl}/articles/${articleId}`,
-            article,
-            {
-                headers: {
-                    "api-key": apiKey,
-                    "Content-Type": "application/json",
-                },
-            }
-        );
+    async updateArticle(
+        id: string,
+        article: DevToArticle
+    ): Promise<{ id: string; url: string }> {
+        try {
+            const response = await axios.put(
+                `${this.baseUrl}/articles/${id}`,
+                { article },
+                {
+                    headers: {
+                        "api-key": this.apiKey,
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
 
-        logger.success("Updated successfully", PLATFORM, post.metadata.slug);
-
-        return {
-            id: response.data.id.toString(),
-            url: response.data.url,
-        };
-    } catch (error: any) {
-        logger.error("Failed to update", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
+            return {
+                id: response.data.id.toString(),
+                url: response.data.url,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to update Dev.to article",
+                "devto",
+                undefined,
+                error
+            );
+            throw error;
+        }
     }
 }

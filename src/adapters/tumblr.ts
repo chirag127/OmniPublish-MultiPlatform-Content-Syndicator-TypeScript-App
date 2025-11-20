@@ -1,167 +1,138 @@
 /**
  * Tumblr Adapter
- * API Documentation: https://www.tumblr.com/docs/en/api/v2
- * Uses OAuth 1.0a
+ * API Docs: https://www.tumblr.com/docs/en/api/v2
  */
 
-import axios from "axios";
-import OAuth from "oauth-1.0a";
-import crypto from "crypto";
-import { Post } from "../utils/markdown";
-import { logger } from "../utils/logger";
-
-const PLATFORM = "tumblr";
-const API_BASE = "https://api.tumblr.com/v2";
+// @ts-ignore
+import { OAuth } from "oauth";
+import { logger } from "../utils/logger.js";
 
 export interface TumblrConfig {
     consumerKey: string;
     consumerSecret: string;
     token: string;
     tokenSecret: string;
-    blogIdentifier: string; // e.g., 'yourblog.tumblr.com'
-    mockMode?: boolean;
-    mockUrl?: string;
+    blogIdentifier: string;
 }
 
-function createOAuthClient(config: TumblrConfig): OAuth {
-    return new OAuth({
-        consumer: {
-            key: config.consumerKey,
-            secret: config.consumerSecret,
-        },
-        signature_method: "HMAC-SHA1",
-        hash_function(base_string, key) {
-            return crypto
-                .createHmac("sha1", key)
-                .update(base_string)
-                .digest("base64");
-        },
-    });
+export interface TumblrPost {
+    title: string;
+    body: string;
+    tags?: string[];
+    state?: "published" | "draft";
 }
 
-export async function publishToTumblr(
-    post: Post,
-    config: TumblrConfig
-): Promise<{ id: string; url: string }> {
-    const { blogIdentifier, token, tokenSecret, mockMode, mockUrl } = config;
+export class TumblrAdapter {
+    private config: TumblrConfig;
+    private oauth: OAuth;
+    private baseUrl = "https://api.tumblr.com/v2";
 
-    if (
-        !config.consumerKey ||
-        !config.consumerSecret ||
-        !token ||
-        !tokenSecret ||
-        !blogIdentifier
-    ) {
-        throw new Error(
-            "Tumblr OAuth credentials and blog identifier are required"
+    constructor(config: TumblrConfig) {
+        this.config = config;
+        this.oauth = new OAuth(
+            "https://www.tumblr.com/oauth/request_token",
+            "https://www.tumblr.com/oauth/access_token",
+            config.consumerKey,
+            config.consumerSecret,
+            "1.0A",
+            null,
+            "HMAC-SHA1"
         );
     }
 
-    const baseUrl = mockMode && mockUrl ? mockUrl : API_BASE;
-    const oauth = createOAuthClient(config);
+    private async makeRequest(
+        method: string,
+        url: string,
+        data: any
+    ): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const fullUrl = `${this.baseUrl}${url}`;
 
-    const requestData = {
-        url: `${baseUrl}/blog/${blogIdentifier}/post`,
-        method: "POST",
-        data: {
-            type: "text",
-            title: post.metadata.title,
-            body: post.html,
-            tags: post.metadata.tags.join(","),
-            state: "published",
-        },
-    };
-
-    const authHeader = oauth.toHeader(
-        oauth.authorize(requestData, {
-            key: token,
-            secret: tokenSecret,
-        })
-    );
-
-    try {
-        const response = await axios.post(requestData.url, requestData.data, {
-            headers: {
-                ...authHeader,
-                "Content-Type": "application/json",
-            },
+            if (method === "POST") {
+                this.oauth.post(
+                    fullUrl,
+                    this.config.token,
+                    this.config.tokenSecret,
+                    data,
+                    "application/json",
+                    (error: any, data: any) => {
+                        if (error) reject(error);
+                        else resolve(JSON.parse(data as string));
+                    }
+                );
+            } else {
+                this.oauth.get(
+                    fullUrl,
+                    this.config.token,
+                    this.config.tokenSecret,
+                    (error: any, data: any) => {
+                        if (error) reject(error);
+                        else resolve(JSON.parse(data as string));
+                    }
+                );
+            }
         });
-
-        logger.success("Published successfully", PLATFORM, post.metadata.slug);
-
-        return {
-            id: response.data.response.id.toString(),
-            url: `https://${blogIdentifier}/post/${response.data.response.id}`,
-        };
-    } catch (error: any) {
-        logger.error("Failed to publish", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
-    }
-}
-
-export async function updateOnTumblr(
-    post: Post,
-    postId: string,
-    config: TumblrConfig
-): Promise<{ id: string; url: string }> {
-    const { blogIdentifier, token, tokenSecret, mockMode, mockUrl } = config;
-
-    if (
-        !config.consumerKey ||
-        !config.consumerSecret ||
-        !token ||
-        !tokenSecret ||
-        !blogIdentifier
-    ) {
-        throw new Error(
-            "Tumblr OAuth credentials and blog identifier are required"
-        );
     }
 
-    const baseUrl = mockMode && mockUrl ? mockUrl : API_BASE;
-    const oauth = createOAuthClient(config);
+    async createPost(post: TumblrPost): Promise<{ id: string; url: string }> {
+        try {
+            const response = await this.makeRequest(
+                "POST",
+                `/blog/${this.config.blogIdentifier}/post`,
+                {
+                    type: "text",
+                    title: post.title,
+                    body: post.body,
+                    tags: post.tags?.join(","),
+                    state: post.state || "published",
+                }
+            );
 
-    const requestData = {
-        url: `${baseUrl}/blog/${blogIdentifier}/post/edit`,
-        method: "POST",
-        data: {
-            id: postId,
-            type: "text",
-            title: post.metadata.title,
-            body: post.html,
-            tags: post.metadata.tags.join(","),
-        },
-    };
+            return {
+                id: response.response.id.toString(),
+                url: `https://${this.config.blogIdentifier}/post/${response.response.id}`,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to create Tumblr post",
+                "tumblr",
+                undefined,
+                error
+            );
+            throw error;
+        }
+    }
 
-    const authHeader = oauth.toHeader(
-        oauth.authorize(requestData, {
-            key: token,
-            secret: tokenSecret,
-        })
-    );
+    async updatePost(
+        id: string,
+        post: TumblrPost
+    ): Promise<{ id: string; url: string }> {
+        try {
+            const response = await this.makeRequest(
+                "POST",
+                `/blog/${this.config.blogIdentifier}/post/edit`,
+                {
+                    id,
+                    type: "text",
+                    title: post.title,
+                    body: post.body,
+                    tags: post.tags?.join(","),
+                    state: post.state || "published",
+                }
+            );
 
-    try {
-        const response = await axios.post(requestData.url, requestData.data, {
-            headers: {
-                ...authHeader,
-                "Content-Type": "application/json",
-            },
-        });
-
-        logger.success("Updated successfully", PLATFORM, post.metadata.slug);
-
-        return {
-            id: postId,
-            url: `https://${blogIdentifier}/post/${postId}`,
-        };
-    } catch (error: any) {
-        logger.error("Failed to update", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
+            return {
+                id: response.response.id.toString(),
+                url: `https://${this.config.blogIdentifier}/post/${response.response.id}`,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to update Tumblr post",
+                "tumblr",
+                undefined,
+                error
+            );
+            throw error;
+        }
     }
 }

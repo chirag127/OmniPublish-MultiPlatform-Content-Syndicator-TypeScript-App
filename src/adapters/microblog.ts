@@ -1,134 +1,125 @@
 /**
  * Micro.blog Adapter
- * API Documentation: https://help.micro.blog/t/posting-api/96
- *
- * Based on fresh API research (Nov 2024):
- * - Uses Micropub protocol (W3C standard)
- * - Endpoint: https://micro.blog/micropub
- * - Authentication: Bearer token in Authorization header
- * - Supports form-encoded or JSON format
+ * API Docs: https://help.micro.blog/t/posting-api/96
+ * Uses Micropub protocol (W3C standard)
+ * Based on fresh API research (Nov 2024)
  */
 
 import axios from "axios";
-import { Post } from "../utils/markdown";
-import { logger } from "../utils/logger";
-
-const PLATFORM = "microblog";
+import { logger } from "../utils/logger.js";
 
 export interface MicroblogConfig {
     token: string;
-    endpoint?: string; // Default: https://micro.blog/micropub
-    mockMode?: boolean;
-    mockUrl?: string;
+    endpoint?: string;
 }
 
-export async function publishToMicroblog(
-    post: Post,
-    config: MicroblogConfig
-): Promise<{ id: string; url: string }> {
-    const {
-        token,
-        endpoint = "https://micro.blog/micropub",
-        mockMode,
-        mockUrl,
-    } = config;
-
-    if (!token) {
-        throw new Error("Micro.blog token is required");
-    }
-
-    const baseUrl = mockMode && mockUrl ? mockUrl : endpoint;
-
-    // Micropub JSON format
-    const postData = {
-        type: ["h-entry"],
-        properties: {
-            name: [post.metadata.title],
-            content: [post.content],
-            category: post.metadata.tags,
-            published: [post.metadata.date],
-        },
-    };
-
-    try {
-        const response = await axios.post(baseUrl, postData, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-            },
-        });
-
-        // Micropub returns the URL in the Location header
-        const postUrl = response.headers.location || response.data.url;
-
-        // Extract ID from URL (last segment)
-        const postId = postUrl.split("/").pop() || postUrl;
-
-        logger.success("Published successfully", PLATFORM, post.metadata.slug);
-
-        return {
-            id: postId,
-            url: postUrl,
-        };
-    } catch (error: any) {
-        logger.error("Failed to publish", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
-    }
+export interface MicroblogPost {
+    name?: string; // Title (optional for microblog posts)
+    content: string;
+    category?: string[]; // Tags
+    "mp-slug"?: string; // Custom slug
 }
 
-export async function updateOnMicroblog(
-    post: Post,
-    postUrl: string,
-    config: MicroblogConfig
-): Promise<{ id: string; url: string }> {
-    const {
-        token,
-        endpoint = "https://micro.blog/micropub",
-        mockMode,
-        mockUrl,
-    } = config;
+export class MicroblogAdapter {
+    private token: string;
+    private endpoint: string;
 
-    if (!token) {
-        throw new Error("Micro.blog token is required");
+    constructor(config: MicroblogConfig) {
+        this.token = config.token;
+        this.endpoint = config.endpoint || "https://micro.blog/micropub";
     }
 
-    const baseUrl = mockMode && mockUrl ? mockUrl : endpoint;
+    async createPost(
+        post: MicroblogPost
+    ): Promise<{ id: string; url: string }> {
+        try {
+            // Micropub uses form-encoded format
+            const formData = new URLSearchParams();
+            formData.append("h", "entry");
+            formData.append("content", post.content);
 
-    // Micropub update format
-    const updateData = {
-        action: "update",
-        url: postUrl,
-        replace: {
-            name: [post.metadata.title],
-            content: [post.content],
-            category: post.metadata.tags,
-        },
-    };
+            if (post.name) {
+                formData.append("name", post.name);
+            }
 
-    try {
-        await axios.post(baseUrl, updateData, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-            },
-        });
+            if (post.category) {
+                post.category.forEach((cat) =>
+                    formData.append("category[]", cat)
+                );
+            }
 
-        logger.success("Updated successfully", PLATFORM, post.metadata.slug);
+            if (post["mp-slug"]) {
+                formData.append("mp-slug", post["mp-slug"]);
+            }
 
-        const postId = postUrl.split("/").pop() || postUrl;
+            const response = await axios.post(this.endpoint, formData, {
+                headers: {
+                    Authorization: `Bearer ${this.token}`,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                maxRedirects: 0,
+                validateStatus: (status) => status === 201 || status === 202,
+            });
 
-        return {
-            id: postId,
-            url: postUrl,
-        };
-    } catch (error: any) {
-        logger.error("Failed to update", PLATFORM, post.metadata.slug, {
-            error: error.message,
-            response: error.response?.data,
-        });
-        throw error;
+            // Micropub returns Location header with the created post URL
+            const url =
+                response.headers.location || response.headers.Location || "";
+            const id = url.split("/").pop() || "";
+
+            return {
+                id,
+                url,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to create Micro.blog post",
+                "microblog",
+                undefined,
+                error
+            );
+            throw error;
+        }
+    }
+
+    async updatePost(
+        url: string,
+        post: MicroblogPost
+    ): Promise<{ id: string; url: string }> {
+        try {
+            // Micropub update uses JSON format
+            const response = await axios.post(
+                this.endpoint,
+                {
+                    action: "update",
+                    url: url,
+                    replace: {
+                        content: [post.content],
+                        ...(post.name && { name: [post.name] }),
+                        ...(post.category && { category: post.category }),
+                    },
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${this.token}`,
+                        "Content-Type": "application/json",
+                    },
+                    validateStatus: (status) =>
+                        status === 200 || status === 201 || status === 204,
+                }
+            );
+
+            return {
+                id: url.split("/").pop() || "",
+                url,
+            };
+        } catch (error: any) {
+            logger.error(
+                "Failed to update Micro.blog post",
+                "microblog",
+                undefined,
+                error
+            );
+            throw error;
+        }
     }
 }

@@ -1,0 +1,8 @@
+{
+    "trustedAuthors": [
+        "yourusername",
+        "maintainer1",
+        "maintainer2"
+    ],
+    "description": "GitHub usernames that can auto-publish via issue-to-post workflow"
+}

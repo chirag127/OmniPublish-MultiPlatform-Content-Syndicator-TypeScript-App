@@ -1,0 +1,80 @@
+name: Issue to Post
+
+on:
+    issues:
+        types: [labeled]
+
+jobs:
+    convert:
+        if: github.event.label.name == 'publish'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            issues: write
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - name: Convert issue to post
+              id: convert
+              run: |
+                  ISSUE_NUMBER=${{ github.event.issue.number }}
+                  ISSUE_TITLE="${{ github.event.issue.title }}"
+                  ISSUE_BODY="${{ github.event.issue.body }}"
+                  ISSUE_USER="${{ github.event.issue.user.login }}"
+
+                  # Generate slug from title
+                  SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+
+                  # Get current date
+                  DATE=$(date +%Y-%m-%d)
+
+                  # Create filename
+                  FILENAME="content/posts/${DATE}-${SLUG}.md"
+
+                  # Extract tags from issue labels
+                  TAGS=$(gh issue view $ISSUE_NUMBER --json labels --jq '.labels[].name' | grep -v "publish" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+                  # Create markdown file
+                  cat > "$FILENAME" << EOF
+                  ---
+                  title: "$ISSUE_TITLE"
+                  date: $DATE
+                  description: "Post created from GitHub issue #$ISSUE_NUMBER"
+                  tags: $TAGS
+                  slug: $SLUG
+                  author: $ISSUE_USER
+                  ---
+
+                  $ISSUE_BODY
+                  EOF
+
+                  echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+                  echo "slug=$SLUG" >> $GITHUB_OUTPUT
+              env:
+                  GH_TOKEN: ${{ github.token }}
+
+            - name: Commit new post
+              run: |
+                  git config --local user.email "github-actions[bot]@users.noreply.github.com"
+                  git config --local user.name "github-actions[bot]"
+                  git add ${{ steps.convert.outputs.filename }}
+                  git commit -m "feat: add post from issue #${{ github.event.issue.number }}"
+                  git push
+
+            - name: Close issue
+              run: |
+                  gh issue close ${{ github.event.issue.number }} --comment "✅ Post created: ${{ steps.convert.outputs.slug }}"
+              env:
+                  GH_TOKEN: ${{ github.token }}
+
+            - name: Comment on issue
+              run: |
+                  gh issue comment ${{ github.event.issue.number }} --body "🚀 Your post has been created and will be published in the next sync cycle!"
+              env:
+                  GH_TOKEN: ${{ github.token }}

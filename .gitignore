@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.log
+.postmap.json
+public/index.html
+public/posts/
+.DS_Store
+coverage/

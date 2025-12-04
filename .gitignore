@@ -1,9 +1,32 @@
-node_modules/
+# Byte-compiled / optimized / profiling Python files
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+
+# IDE directories
+.idea/
+.vscode/
+*.swp
+*~.swp
+
+# Build artifacts
+build/
 dist/
+*.egg-info/
+wheels/
+
+# Distribution / packaging
+*.tar.gz
+*.whl
+
+# Coverage reports
+.coverage
+.tox/
+
+# Local environment variables
 .env
-*.log
-.postmap.json
-public/index.html
-public/posts/
+
+# OS-generated files
 .DS_Store
-coverage/
+Thumbs.db
